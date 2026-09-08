@@ -1,0 +1,18 @@
+{
+  "cli": {
+    "version": ">= 23.2.0",
+    "appVersionSource": "local"
+  },
+  "build": {
+    "preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_SUPABASE_URL": "https://pcsxjignaclkeewhipiq.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBjc3hqaWduYWNsa2Vld2hpcGlxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg3MTA1MjIsImV4cCI6MjEwNDI4NjUyMn0.wiRA9MD9Gx8tQ0qBA2XrnHccXgjUOXWDlkKdakR4EFw"
+      }
+    }
+  }
+}

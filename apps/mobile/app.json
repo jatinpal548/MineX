@@ -9,6 +9,7 @@
     "backgroundColor": "#F5F6F4",
     "newArchEnabled": true,
     "splash": {
+      "image": "./assets/splash.png",
       "resizeMode": "contain",
       "backgroundColor": "#F5F6F4"
     },
@@ -25,7 +26,14 @@
       "userInterfaceStyle": "light",
       "adaptiveIcon": {
         "backgroundColor": "#0b0e10"
-      }
+      },
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -66,6 +74,9 @@
     "extra": {
       "router": {
         "origin": false
+      },
+      "eas": {
+        "projectId": "6ee1fa77-9eb3-4389-878b-63118928c6d2"
       }
     }
   }
