@@ -1,0 +1,72 @@
+{
+  "expo": {
+    "name": "MineX Field",
+    "slug": "coalguard-field",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "coalguard",
+    "userInterfaceStyle": "light",
+    "backgroundColor": "#F5F6F4",
+    "newArchEnabled": true,
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#F5F6F4"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "ai.coalguard.field",
+      "userInterfaceStyle": "light"
+    },
+    "android": {
+      "package": "ai.coalguard.field",
+      "userInterfaceStyle": "light",
+      "adaptiveIcon": {
+        "backgroundColor": "#0b0e10"
+      }
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-splash-screen",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "MineX Field uses the camera to capture inspection evidence photos."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "MineX Field needs access to your photos to attach evidence to an inspection."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "MineX Field records the location where inspection evidence is captured."
+        }
+      ],
+      [
+        "expo-av",
+        {
+          "microphonePermission": "MineX Field uses the microphone to record voice notes for observations and incidents."
+        }
+      ],
+      "expo-sqlite"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {
+        "origin": false
+      }
+    }
+  }
+}

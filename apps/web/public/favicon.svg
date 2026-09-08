@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+  <rect width="32" height="32" rx="6" fill="#1f2933"/>
+  <text x="16" y="22" text-anchor="middle" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="15" font-weight="700" letter-spacing="-0.5">
+    <tspan fill="#ffffff">M</tspan><tspan fill="#2563eb">X</tspan>
+  </text>
+</svg>

@@ -1,0 +1,76 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Semantic colour variables. Values are R G B triples (no commas) so Tailwind's
+ * `<alpha-value>` syntax works: `bg-surface/60` etc.
+ * Raw values come from @coalguard/ui/tokens - keep them in sync.
+ */
+:root {
+  --bg: 251 251 250; /* paper.50  */
+  --surface: 255 255 255; /* paper.0   */
+  --surface-muted: 244 244 242; /* paper.100 */
+  --border: 201 206 210; /* graphite.200 */
+  --text-primary: 18 22 26; /* graphite.900 */
+  --text-secondary: 74 84 92; /* graphite.500 */
+}
+
+.dark {
+  --bg: 11 14 16; /* graphite.950 */
+  --surface: 18 22 26; /* graphite.900 */
+  --surface-muted: 27 33 38; /* graphite.800 */
+  --border: 38 45 51; /* graphite.700 */
+  --text-primary: 251 251 250; /* paper.50 */
+  --text-secondary: 163 171 178; /* graphite.300 */
+}
+
+@layer base {
+  * {
+    border-color: rgb(var(--border));
+  }
+  body {
+    background-color: rgb(var(--bg));
+    color: rgb(var(--text-primary));
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+@layer components {
+  .cg-card {
+    @apply rounded-lg border border-border bg-surface shadow-card;
+  }
+  .cg-label {
+    @apply text-xs font-medium uppercase tracking-wide text-secondary;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Leaflet (Mine Risk Map). Dark-tint the light OSM raster tiles to match the
+   command-centre theme; keep controls/popups readable.
+--------------------------------------------------------------------------- */
+.leaflet-container {
+  background: #111827;
+  font: inherit;
+}
+.cg-dark-tiles {
+  filter: invert(0.92) hue-rotate(180deg) brightness(0.95) contrast(0.9);
+}
+.leaflet-control-zoom a {
+  background: rgb(var(--surface));
+  color: rgb(var(--text-primary));
+  border-color: rgb(var(--border));
+}
+.leaflet-control-attribution {
+  background: rgba(17, 24, 39, 0.7) !important;
+  color: rgb(var(--text-secondary)) !important;
+}
+.leaflet-control-attribution a {
+  color: rgb(var(--accent-600, 37 99 235));
+}
+.leaflet-popup-content-wrapper,
+.leaflet-popup-tip {
+  background: #ffffff;
+  color: #111827;
+}

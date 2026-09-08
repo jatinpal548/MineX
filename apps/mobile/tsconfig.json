@@ -1,0 +1,26 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    // Expo's tsconfig.base sets moduleResolution:"node" (reported as the
+    // deprecated "node10"). Expo SDK 52 + Metro fully support package.json
+    // "exports", so pin the modern bundler algorithm. tsc-only — Metro/Babel
+    // resolution is unaffected. baseUrl is kept: @expo/metro-config's
+    // tsconfig-paths resolver anchors "paths" to it at runtime.
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"],
+      "@coalguard/types": ["../../packages/types/src/index.ts"],
+      "@coalguard/config": ["../../packages/config/src/index.ts"],
+      "@coalguard/ui": ["../../packages/ui/src/index.ts"],
+      "@coalguard/ui/tokens": ["../../packages/ui/src/tokens.ts"],
+      "@coalguard/ai/heuristic": ["../../packages/ai/src/heuristic.ts"],
+      "@coalguard/ai/observation": ["../../packages/ai/src/observation.ts"],
+      "@coalguard/ai/types": ["../../packages/ai/src/types.ts"]
+    }
+  },
+  "include": ["**/*.ts", "**/*.tsx", ".expo/types/**/*.ts", "expo-env.d.ts"]
+}
