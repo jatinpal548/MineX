@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { FileText, ScanText, Upload } from 'lucide-react';
-import { getCommandContext } from '@/lib/data/context';
+import { loadScopedCommandPage } from '@/lib/data/context';
 import { listComplianceDocuments } from '@/lib/data/documents';
 import { PageHeader } from '@/components/ui/page-header';
 import { Panel } from '@/components/ui/panel';
@@ -28,14 +28,12 @@ export default async function DocumentsPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const sp = await searchParams;
-  const context = await getCommandContext();
-  if (!context) return null;
 
-  const mineParam = str(sp.mine);
-  const activeMine =
-    mineParam && context.mines.some((m) => m.id === mineParam) ? mineParam : undefined;
-
-  const docs = await listComplianceDocuments({ mineId: activeMine });
+  const loaded = await loadScopedCommandPage(str(sp.mine), (mineId) =>
+    listComplianceDocuments({ mineId }),
+  );
+  if (!loaded) return null;
+  const { context, data: docs } = loaded;
 
   return (
     <div className="space-y-6">

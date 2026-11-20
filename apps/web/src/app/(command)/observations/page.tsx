@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { TriangleAlert } from 'lucide-react';
 import type { ObservationStatus, RiskLevel } from '@coalguard/types';
-import { getCommandContext } from '@/lib/data/context';
+import { loadScopedCommandPage } from '@/lib/data/context';
 import { listObservations } from '@/lib/data/observations';
 import {
   OBSERVATION_STATUS_META,
@@ -29,25 +29,23 @@ export default async function ObservationsPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const sp = await searchParams;
-  const context = await getCommandContext();
-  if (!context) return null;
-
-  const mineParam = str(sp.mine);
-  const activeMine =
-    mineParam && context.mines.some((m) => m.id === mineParam) ? mineParam : undefined;
   const statusParam = str(sp.status);
   const riskParam = str(sp.risk);
   const page = Number(str(sp.page) ?? '1') || 1;
 
-  const result = await listObservations({
-    search: str(sp.q),
-    status: OBSERVATION_STATUS_ORDER.includes(statusParam as ObservationStatus)
-      ? (statusParam as ObservationStatus)
-      : undefined,
-    risk: RISK_ORDER.includes(riskParam as RiskLevel) ? (riskParam as RiskLevel) : undefined,
-    mineId: activeMine,
-    page,
-  });
+  const loaded = await loadScopedCommandPage(str(sp.mine), (mineId) =>
+    listObservations({
+      search: str(sp.q),
+      status: OBSERVATION_STATUS_ORDER.includes(statusParam as ObservationStatus)
+        ? (statusParam as ObservationStatus)
+        : undefined,
+      risk: RISK_ORDER.includes(riskParam as RiskLevel) ? (riskParam as RiskLevel) : undefined,
+      mineId,
+      page,
+    }),
+  );
+  if (!loaded) return null;
+  const { context, data: result } = loaded;
 
   return (
     <div className="space-y-5">

@@ -143,14 +143,8 @@ const isDueSoon = (due: string | null, status: string) => {
 
 /* ------------------------------- main ---------------------------------- */
 
-/**
- * Per-request memoised on `mineId`. The dashboard renders its sections inside
- * separate <Suspense> boundaries so the shell + skeletons stream immediately;
- * every boundary calls this, and `cache()` collapses them into ONE fetch +
- * aggregation per render (keyed by the primitive `mineId`, so the object-arg
- * public wrapper below still hits the same cache entry).
- */
-const loadDashboardData = cache(async (mineId: string | undefined): Promise<DashboardData> => {
+/** Share the overview and supporting queries within each server render. */
+const startDashboardQueries = cache(async (mineId: string | undefined) => {
   const supabase = await createClient();
   const scope = <T extends { eq: (c: string, v: string) => T }>(q: T) =>
     mineId ? q.eq('mine_id', mineId) : q;
@@ -215,27 +209,19 @@ const loadDashboardData = cache(async (mineId: string | undefined): Promise<Dash
     ? supabase.from('mines').select('name, latitude, longitude').eq('id', mineId).maybeSingle()
     : Promise.resolve({ data: null });
 
-  const [inspR, obsR, caR, eviR, envR, eqR, mtR, mineR, register] = await Promise.all([
-    inspQ,
-    obsQ,
-    caQ,
-    eviQ,
-    envQ,
-    eqQ,
-    mtQ,
-    mineQ,
-    getComplianceRegister({ mineId }),
-  ]);
+  return {
+    overview: Promise.all([inspQ, obsQ, caQ, envQ, getComplianceRegister({ mineId })]),
+    supporting: [eviQ, eqQ, mtQ, mineQ] as const,
+  };
+});
 
+export const getDashboardOverview = cache(async (mineId: string | undefined) => {
+  const { overview } = await startDashboardQueries(mineId);
+  const [inspR, obsR, caR, envR, register] = await overview;
   const inspections = (inspR.data ?? []) as Record<string, unknown>[];
   const observations = (obsR.data ?? []) as Record<string, unknown>[];
   const cas = (caR.data ?? []) as Record<string, unknown>[];
-  const evidence = (eviR.data ?? []) as Record<string, unknown>[];
   const env = (envR.data ?? []) as { is_breach: boolean }[];
-  const equipment = (eqR.data ?? []) as { status: string }[];
-  const maintenance = (mtR.data ?? []) as { status: string; scheduled_for: string | null }[];
-  const mineRow = (mineR as { data: { name?: string; latitude?: number; longitude?: number } | null })
-    .data;
 
   /* ------------------------------- KPIs ------------------------------- */
   const openObservations = observations.filter((o) =>
@@ -276,6 +262,37 @@ const loadDashboardData = cache(async (mineId: string | undefined): Promise<Dash
     pendingCorrectiveActions,
     compliance: { total: rk.total, compliant: rk.compliant, label: compLabel, tone: compTone },
   };
+
+  const overdueActions = cas.filter((c) =>
+    isOverdue(c.due_date as string | null, c.status as string),
+  ).length;
+  const envBreaches = env.filter((e) => e.is_breach).length;
+
+  const escalation = {
+    critical: observations.filter(
+      (o) => ACTIVE_RISK_STATUSES.includes(o.status as ObservationStatus) && o.risk === 'critical',
+    ).length,
+    overdue: overdueActions,
+    dueSoon: cas.filter((c) => isDueSoon(c.due_date as string | null, c.status as string)).length,
+    awaitingVerification: cas.filter((c) => c.status === 'submitted').length,
+  };
+
+  return { kpis, escalation, envBreaches, inspections, observations, cas, rk };
+});
+
+const loadDashboardData = cache(async (mineId: string | undefined): Promise<DashboardData> => {
+  const [overview, [eviR, eqR, mtR, mineR]] = await Promise.all([
+    getDashboardOverview(mineId),
+    startDashboardQueries(mineId).then(({ supporting }) => Promise.all(supporting)),
+  ]);
+  const { kpis, escalation, envBreaches, inspections, observations, cas, rk } = overview;
+  const { highCriticalRisks, openObservations, pendingCorrectiveActions } = kpis;
+  const overdueActions = escalation.overdue;
+  const evidence = (eviR.data ?? []) as Record<string, unknown>[];
+  const equipment = (eqR.data ?? []) as { status: string }[];
+  const maintenance = (mtR.data ?? []) as { status: string; scheduled_for: string | null }[];
+  const mineRow = (mineR as { data: { name?: string; latitude?: number; longitude?: number } | null })
+    .data;
 
   /* --------------------------- inspection trend --------------------- */
   // Use the most meaningful lifecycle timestamp; exclude cancelled drafts.
@@ -478,11 +495,7 @@ const loadDashboardData = cache(async (mineId: string | undefined): Promise<Dash
     .map(([category, v]) => ({ category, count: v.count }))
     .sort((a, b) => b.count - a.count);
 
-  const overdueActions = cas.filter((c) =>
-    isOverdue(c.due_date as string | null, c.status as string),
-  ).length;
   const complianceAtRisk = rk.atRisk + rk.nonCompliant + rk.overdue;
-  const envBreaches = env.filter((e) => e.is_breach).length;
   const equipmentDown = equipment.filter(
     (e) => e.status === 'maintenance' || e.status === 'breakdown',
   ).length;
@@ -494,15 +507,6 @@ const loadDashboardData = cache(async (mineId: string | undefined): Promise<Dash
       m.scheduled_for &&
       new Date(m.scheduled_for).getTime() < Date.now(),
   ).length;
-
-  const escalation = {
-    critical: observations.filter(
-      (o) => ACTIVE_RISK_STATUSES.includes(o.status as ObservationStatus) && o.risk === 'critical',
-    ).length,
-    overdue: overdueActions,
-    dueSoon: cas.filter((c) => isDueSoon(c.due_date as string | null, c.status as string)).length,
-    awaitingVerification: cas.filter((c) => c.status === 'submitted').length,
-  };
 
   const signals: RiskIntelSignal[] = [];
   const topCat = topCategories[0];

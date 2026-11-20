@@ -4,12 +4,24 @@ import { publicEnv } from '@/lib/env';
 
 type CookieToSet = { name: string; value: string; options: CookieOptions };
 
+const PROTECTED_PREFIXES = [
+  '/dashboard', '/inspections', '/observations', '/corrective-actions', '/risk-map',
+  '/compliance', '/documents', '/contractors', '/attendance', '/grievances',
+  '/mine-operations', '/reports', '/notifications', '/profile', '/settings',
+];
+
 /**
  * Keeps the Supabase auth session fresh on every request and guards the
  * authenticated area. Wired up in `src/middleware.ts`.
  */
 export async function updateSession(request: NextRequest) {
   let response = NextResponse.next({ request });
+  const { pathname } = request.nextUrl;
+  const isProtected = PROTECTED_PREFIXES.some(
+    (path) => pathname === path || pathname.startsWith(`${path}/`),
+  );
+  const isLogin = pathname === '/login';
+  if (!isProtected && !isLogin) return response;
 
   // If env is not configured yet, don't crash the whole site - just pass through.
   if (!publicEnv.supabaseUrl || !publicEnv.supabaseAnonKey) {
@@ -31,45 +43,26 @@ export async function updateSession(request: NextRequest) {
     },
   });
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Refresh expired credentials here so any updated cookies can be written.
+  // The command layout, report handler and server actions verify identity with
+  // getUser(), and Supabase applies RLS to the data queries.
+  const { data: { session } } = await supabase.auth.getSession();
+  if (isProtected && session) return response;
 
-  const { pathname } = request.nextUrl;
-  const PROTECTED_PREFIXES = [
-    '/dashboard',
-    '/inspections',
-    '/observations',
-    '/corrective-actions',
-    '/risk-map',
-    '/compliance',
-    '/documents',
-    '/contractors',
-    '/attendance',
-    '/grievances',
-    '/mine-operations',
-    '/reports',
-    '/notifications',
-    '/profile',
-    '/settings',
-  ];
-  const isProtected = PROTECTED_PREFIXES.some(
-    (p) => pathname === p || pathname.startsWith(`${p}/`),
-  );
-  const isAuthRoute = pathname.startsWith('/login');
-
-  if (isProtected && !user) {
-    const url = request.nextUrl.clone();
+  const url = request.nextUrl.clone();
+  if (isProtected) {
     url.pathname = '/login';
-    url.searchParams.set('next', pathname);
-    return NextResponse.redirect(url);
-  }
-
-  if (isAuthRoute && user) {
-    const url = request.nextUrl.clone();
+    url.search = '';
+    url.searchParams.set('next', `${pathname}${request.nextUrl.search}`);
+  } else {
+    if (!session) return response;
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return response;
     url.pathname = '/dashboard';
-    return NextResponse.redirect(url);
+    url.search = '';
   }
 
-  return response;
+  const redirect = NextResponse.redirect(url);
+  response.cookies.getAll().forEach((cookie) => redirect.cookies.set(cookie));
+  return redirect;
 }

@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { HardHat, ShieldAlert, Users } from 'lucide-react';
-import { getCommandContext } from '@/lib/data/context';
+import { loadScopedCommandPage } from '@/lib/data/context';
 import { listContractors, contractorKpis, CONTRACTOR_RISK_META } from '@/lib/data/contractors';
 import { PageHeader } from '@/components/ui/page-header';
 import { KpiCard } from '@/components/ui/kpi-card';
@@ -29,14 +29,12 @@ export default async function ContractorsPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const sp = await searchParams;
-  const context = await getCommandContext();
-  if (!context) return null;
 
-  const mineParam = str(sp.mine);
-  const activeMine =
-    mineParam && context.mines.some((m) => m.id === mineParam) ? mineParam : undefined;
-
-  const rows = await listContractors({ mineId: activeMine });
+  const loaded = await loadScopedCommandPage(str(sp.mine), (mineId) =>
+    listContractors({ mineId }),
+  );
+  if (!loaded) return null;
+  const { context, data: rows } = loaded;
   const kpis = contractorKpis(rows);
 
   return (

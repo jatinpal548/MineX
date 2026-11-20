@@ -4,6 +4,10 @@ import { revalidatePath } from 'next/cache';
 import type { CorrectiveActionStatus, UserRole } from '@coalguard/types';
 import { createClient } from '@/lib/supabase/server';
 import { getSessionUser } from '@/lib/auth';
+import { hasPermission } from '@coalguard/config';
+import { getInspectionAssignees } from '@/lib/data/governance';
+import { OBSERVATION_OPEN_STATUSES } from '@/lib/status';
+import { one } from '@/lib/data/shared';
 import { caCapabilities, allowedStatusTargets } from '@/lib/data/ca-permissions';
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
@@ -14,6 +18,7 @@ interface CaRow {
   status: CorrectiveActionStatus;
   assigned_to: string | null;
   assigned_by: string | null;
+  due_date: string | null;
   observation_id: string | null;
   title: string;
 }
@@ -30,7 +35,7 @@ async function loadCa(caId: string): Promise<Loaded> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('corrective_actions')
-    .select('id, mine_id, status, assigned_to, assigned_by, observation_id, title')
+    .select('id, mine_id, status, assigned_to, assigned_by, due_date, observation_id, title')
     .eq('id', caId)
     .maybeSingle();
 
@@ -87,14 +92,23 @@ const isoDate = (s: string): boolean => /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number
 
 /* ------------------------------- assign ------------------------------ */
 
-export async function assignCorrectiveAction(input: {
+type Assignment = {
   caId: string;
   assigneeId: string;
   dueDate: string;
   note?: string;
-}): Promise<ActionResult> {
+};
+
+export async function assignCorrectiveAction(input: Assignment): Promise<ActionResult> {
   const loaded = await loadCa(input.caId);
   if (!loaded.ok) return loaded;
+  return assignLoadedAction(input, loaded);
+}
+
+async function assignLoadedAction(
+  input: Assignment,
+  loaded: Extract<Loaded, { ok: true }>,
+): Promise<ActionResult> {
   const { supabase, userId, roles, ca } = loaded;
 
   const caps = caCapabilities(roles, userId, {
@@ -104,6 +118,9 @@ export async function assignCorrectiveAction(input: {
   if (!caps.canAssign) return { ok: false, error: 'forbidden' };
   if (!input.assigneeId) return { ok: false, error: 'assignee_required' };
   if (!input.dueDate || !isoDate(input.dueDate)) return { ok: false, error: 'due_date_invalid' };
+  if (ca.status === 'assigned' && ca.assigned_to === input.assigneeId && ca.due_date === input.dueDate && !input.note) {
+    return { ok: true };
+  }
 
   // assignee must be valid for THIS action's mine (RPC is scope-checked)
   const { data: eligible, error: eErr } = await supabase.rpc('eligible_ca_assignees', {
@@ -113,7 +130,7 @@ export async function assignCorrectiveAction(input: {
   const ok = ((eligible ?? []) as { id: string }[]).some((r) => r.id === input.assigneeId);
   if (!ok) return { ok: false, error: 'assignee_ineligible' };
 
-  const { error } = await supabase
+  let update = supabase
     .from('corrective_actions')
     .update({
       assigned_to: input.assigneeId,
@@ -122,18 +139,103 @@ export async function assignCorrectiveAction(input: {
       due_date: input.dueDate,
       status: 'assigned',
     })
-    .eq('id', ca.id);
-  if (error) return { ok: false, error: 'update_failed' };
+    .eq('id', ca.id)
+    .eq('status', ca.status);
+  update = ca.assigned_to ? update.eq('assigned_to', ca.assigned_to) : update.is('assigned_to', null);
+  const { data, error } = await update.select('id').maybeSingle();
+  if (error || !data) return { ok: false, error: 'update_failed' };
 
-  await writeAudit(supabase, {
-    actorId: userId,
-    caId: ca.id,
-    mineId: ca.mine_id,
-    action: 'corrective_action.assigned',
-    after: { assignee: input.assigneeId, due_date: input.dueDate, note: input.note?.trim() || null },
-  });
-  await notify(supabase, ca.id, input.assigneeId, 'assigned');
+  await Promise.all([
+    writeAudit(supabase, {
+      actorId: userId,
+      caId: ca.id,
+      mineId: ca.mine_id,
+      action: 'corrective_action.assigned',
+      after: { assignee: input.assigneeId, due_date: input.dueDate, note: input.note?.trim() || null },
+    }),
+    notify(supabase, ca.id, input.assigneeId, 'assigned'),
+  ]);
   revalidate(ca.id, ca.observation_id);
+  return { ok: true };
+}
+
+export async function assignInspectionIssue(input: {
+  inspectionId: string;
+  observationId: string;
+  assigneeId: string;
+  dueDate: string;
+}): Promise<ActionResult> {
+  const user = await getSessionUser();
+  if (!user) return { ok: false, error: 'unauthorized' };
+  const roles = user.roles.map((r) => r.role);
+  if (!hasPermission(roles, 'corrective_action:assign')) {
+    return { ok: false, error: 'forbidden' };
+  }
+  if (typeof input.dueDate !== 'string' || !isoDate(input.dueDate)) {
+    return { ok: false, error: 'due_date_invalid' };
+  }
+  const supabase = await createClient();
+  const { data: observation, error } = await supabase.from('observations')
+    .select(`id, mine_id, title, description, risk, status,
+      inspection:inspections!observations_inspection_id_fkey!inner(mine_id),
+      corrective_actions(id, mine_id, status, assigned_to, assigned_by, due_date, observation_id, title, created_at)`)
+    .eq('id', input.observationId)
+    .eq('inspection_id', input.inspectionId)
+    .order('created_at', { referencedTable: 'corrective_actions', ascending: false })
+    .limit(1, { referencedTable: 'corrective_actions' })
+    .maybeSingle();
+  if (error || !observation || one(observation.inspection)?.mine_id !== observation.mine_id) {
+    return { ok: false, error: 'not_found' };
+  }
+
+  const existing = observation.corrective_actions[0];
+  if (existing) {
+    if (existing.mine_id !== observation.mine_id) return { ok: false, error: 'forbidden' };
+    const result = await assignLoadedAction({ ...input, caId: existing.id }, {
+      ok: true, supabase, userId: user.id, roles, ca: existing as CaRow,
+    });
+    if (result.ok) revalidatePath(`/inspections/${input.inspectionId}`);
+    return result;
+  }
+  if (!OBSERVATION_OPEN_STATUSES.includes(observation.status)) {
+    return { ok: false, error: 'forbidden' };
+  }
+  const assignees = await getInspectionAssignees(input.inspectionId);
+  if (!assignees) return { ok: false, error: 'server_error' };
+  if (!assignees.some((person) => person.id === input.assigneeId)) {
+    return { ok: false, error: 'assignee_ineligible' };
+  }
+
+  // The observation ID makes concurrent first drops target the same new row.
+  const caId = observation.id;
+  const { error: insertError } = await supabase.from('corrective_actions').insert({
+    id: caId,
+    observation_id: observation.id,
+    inspection_id: input.inspectionId,
+    mine_id: observation.mine_id,
+    title: observation.title,
+    description: observation.description,
+    priority: observation.risk ?? 'medium',
+    assigned_to: input.assigneeId,
+    assigned_by: user.id,
+    assigned_at: new Date().toISOString(),
+    due_date: input.dueDate,
+    status: 'assigned',
+  });
+  if (insertError) return { ok: false, error: 'update_failed' };
+
+  await Promise.all([
+    writeAudit(supabase, {
+      actorId: user.id,
+      caId,
+      mineId: observation.mine_id,
+      action: 'corrective_action.assigned',
+      after: { assignee: input.assigneeId, due_date: input.dueDate },
+    }),
+    notify(supabase, caId, input.assigneeId, 'assigned'),
+  ]);
+  revalidate(caId, observation.id);
+  revalidatePath(`/inspections/${input.inspectionId}`);
   return { ok: true };
 }
 

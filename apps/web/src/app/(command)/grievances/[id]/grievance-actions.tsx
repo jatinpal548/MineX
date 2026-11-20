@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
 import { CheckCircle2, Loader2, MessageSquare, Search } from 'lucide-react';
 import type { GrievanceStatus } from '@coalguard/types';
 import { Button } from '@/components/ui/button';
@@ -33,7 +32,6 @@ export function GrievanceActions({
   status: GrievanceStatus;
   canManage: boolean;
 }) {
-  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [dialog, setDialog] = useState<null | 'resolve' | 'close'>(null);
@@ -62,7 +60,6 @@ export function GrievanceActions({
       if (res.ok) {
         setDialog(null);
         setNote('');
-        router.refresh();
       } else {
         setError(ERR[res.error] ?? res.error);
       }

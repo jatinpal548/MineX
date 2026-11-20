@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { CalendarClock, ShieldCheck, ShieldAlert, ShieldX, UserCog } from 'lucide-react';
 import type { ComplianceStatus, RiskLevel } from '@coalguard/types';
-import { getCommandContext } from '@/lib/data/context';
+import { loadScopedCommandPage } from '@/lib/data/context';
 import {
   getComplianceRegister,
   COMPLIANCE_STATUS_META,
@@ -59,26 +59,24 @@ export default async function CompliancePage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const sp = await searchParams;
-  const context = await getCommandContext();
-  if (!context) return null;
-
-  const mineParam = str(sp.mine);
-  const activeMine =
-    mineParam && context.mines.some((m) => m.id === mineParam) ? mineParam : undefined;
   const statusParam = str(sp.status);
   const priorityParam = str(sp.priority);
   const categoryParam = str(sp.category);
 
-  const register = await getComplianceRegister({
-    mineId: activeMine,
-    status: COMPLIANCE_STATUS_ORDER.includes(statusParam as ComplianceStatus)
-      ? (statusParam as ComplianceStatus)
-      : undefined,
-    priority: PRIORITIES.includes(priorityParam as RiskLevel)
-      ? (priorityParam as RiskLevel)
-      : undefined,
-    category: categoryParam,
-  });
+  const loaded = await loadScopedCommandPage(str(sp.mine), (mineId) =>
+    getComplianceRegister({
+      mineId,
+      status: COMPLIANCE_STATUS_ORDER.includes(statusParam as ComplianceStatus)
+        ? (statusParam as ComplianceStatus)
+        : undefined,
+      priority: PRIORITIES.includes(priorityParam as RiskLevel)
+        ? (priorityParam as RiskLevel)
+        : undefined,
+      category: categoryParam,
+    }),
+  );
+  if (!loaded) return null;
+  const { context, data: register } = loaded;
 
   const { rows, kpis, statusDistribution, owners, upcoming, coverage } = register;
   const categories = [...new Set(rows.map((r) => r.category).filter(Boolean))] as string[];

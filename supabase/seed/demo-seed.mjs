@@ -68,9 +68,9 @@ function loadEnv() {
 const { url: BASE, key: SRK } = loadEnv();
 
 /* ---- constants ---------------------------------------------------------- */
-const MINE = '9dab1551-680d-42c8-be18-5f519054acea'; // Jayant OC (Demo)
-const DEPT = '4aee81fa-00c0-4c05-9abd-446ffe8a1fdc'; // Jayant OC / Safety
-const TPL = '46479fa0-5557-4250-8e92-567b558287cc';  // Daily Safety Round
+const MINE = 'edd08192-eebe-4d2a-a34a-cc9484300742'; // Jayant OC (Demo)
+const DEPT = 'd51286fd-1c08-4def-8403-0daaefe73230'; // Jayant OC / Safety
+const TPL = '1492b9b4-4c91-4fa8-b946-476c2b769407';  // Daily Safety Round
 const LAT = 24.119, LNG = 82.656;
 
 const INSP1 = 'a1000000-0000-4000-8000-000000000001';

@@ -14,6 +14,7 @@
     "web": "npm run dev --workspace @coalguard/web",
     "web:build": "npm run build --workspace @coalguard/web",
     "mobile": "npm run start --workspace @coalguard/mobile",
+    "mobile:apk": "npm run build:apk --workspace @coalguard/mobile",
     "demo:reset": "node supabase/seed/demo-seed.mjs",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",

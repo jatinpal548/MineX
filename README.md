@@ -23,6 +23,13 @@ operations. It has two clients over one backend and one database:
 
 ---
 
+## Recent updates
+
+- **Drag-and-drop assignment.** Assign an inspection finding to an eligible worker directly from the inspection detail page, including findings that need a new corrective action.
+- **Live Command updates.** A connection badge shows the Supabase Realtime status. Changes to subscribed records trigger a batched refresh.
+- **Faster Command navigation.** The production sidebar prefetches core routes, recently opened pages are briefly cached in the browser, and key queries run in parallel.
+- **Android APK.** The MineX Field workspace has a preview build profile for direct installation on an Android device.
+
 ## Table of contents
 
 1. [Introduction](#1-introduction)
@@ -218,7 +225,8 @@ Legend: **Implemented** = working on real data · **Partial** = works with a def
 | Auth-expiry handling | Implemented | A `401` during sync sets a `meta.auth_expired` flag, keeps the queue, and stops; sign-in clears it and resumes. |
 | Alerts (mobile) | Implemented | Live list of active high/critical observations and corrective actions for the user's mine. |
 | Corrective actions | Implemented | `open → assigned → in_progress → submitted → verified/closed` (+ `rejected`, `overdue`). |
-| Assignment | Implemented | Web server action; assignee validated against `eligible_ca_assignees` RPC (scoped to the action's mine). |
+| Assignment | Implemented | Assign from an inspection by drag-and-drop or from the corrective-action detail form. The server validates the manager's permission and the assignee's mine eligibility. |
+| Command live refresh | Implemented | Supabase Realtime listens for changes to inspections, observations, corrective actions, evidence, notifications and grievances. The shell batches refreshes and shows connection status. |
 | Progress notes | Implemented | Recorded to `audit_logs` (no separate notes table). |
 | Closure submission | Implemented | Assignee submits `closure_notes` (+ optional closure evidence). |
 | Verification / rejection | Implemented | Verifier verifies (`verified` + `closed_at`) or rejects with a `rejection_reason`. |
@@ -321,6 +329,15 @@ Login (Supabase Auth)
                                                → Verify  → verified + closed_at → audit_logs + notification
                                                → or Reject (reason)            → audit_logs + notification
 ```
+
+### Assign an issue from an inspection
+
+1. In MineX Command, sign in with a role that has `corrective_action:assign` and open **Inspections**. Select an inspection, then open **Assign inspection issues**.
+2. Review the due date. It defaults to seven days from today in India time and can be changed before assigning.
+3. Drag an issue onto an eligible person. On a touchscreen or with a keyboard, select the issue and then select the person.
+4. MineX assigns the linked corrective action or creates one for an open finding. It records the assignment in the audit log and sends an in-app notification. The assignee can open the task under **Corrective Actions** in MineX Field.
+
+The picker lists active user accounts with a current role assignment at the inspection's mine. Apply migration `0009_inspection_assignment.sql` to enable the picker.
 
 **Online behaviour.** Every write goes directly to Supabase through the signed-in user's JWT; RLS
 decides whether it is allowed. The Command Center reads the same rows live.
@@ -512,7 +529,7 @@ Because the heuristic is pure, the same observation text always yields the same 
 | **Maps** | OpenStreetMap raster tiles (`tile.openstreetmap.org`) via Leaflet | Risk-map basemap — no API key, no vendor SDK |
 | **Monorepo** | npm workspaces | `apps/*` + `packages/*`, one shared `node_modules` |
 | **Tooling** | ESLint (`eslint-config-next`, `eslint-config-expo`), Prettier, TypeScript, `expo-doctor` | Lint / format / typecheck / project-health |
-| **Mobile build** | EAS Build (`eas.json`) | Installable Android **APK** (`preview` profile) |
+| **Mobile build** | EAS Build (`apps/mobile/eas.json`) | Installable Android **APK** (`preview` profile) |
 
 _Only technologies confirmed by `package.json` / source are listed._
 
@@ -596,6 +613,8 @@ PostgreSQL, hosted by Supabase. Migrations in `supabase/migrations/` run in file
 | `0004_grants.sql` | Explicit table / sequence / function privileges for `anon` / `authenticated` / `service_role` (RLS still filters rows). |
 | `0005_inspection_templates.sql` | **Seed-only.** Adds four inspection templates (Safety & PPE, Electrical Safety, Equipment & Machinery, Environmental Compliance) + checklist items. No schema change. |
 | `0006_governance.sql` | **Additive.** `scoped_profile_ids()`, `eligible_ca_assignees(uuid)`, `notify_governance(uuid,uuid,text)` (`SECURITY DEFINER`) + one extra `profiles` SELECT policy. No tables / columns / enum values added. |
+| `0007_realtime.sql` | Adds selected operational tables to the Supabase Realtime publication. |
+| `0009_inspection_assignment.sql` | Adds the mine-scoped inspection assignee picker RPC. Requires the RLS helper from `0002` and governance functions from `0006`. |
 
 ### Table groups (28 tables)
 
@@ -712,7 +731,7 @@ There is no separate API server. "Backend" = Next.js **route handlers**, **serve
 | `POST` | `/api/ai/classify-risk` | Verify token → `classifyRisk()` + `analyzeObservation()` → risk band, rationale, recommendations, consequence, recommended action, provider/model | `Authorization: Bearer <supabase access token>` | MineX Field (AI risk analysis) |
 | `POST` | `/api/ai/transcribe` | Verify token → load the `voice_note` `evidence` row through the caller's JWT (RLS) → sign a short URL → transcription provider. Returns `{ available: false }` when no provider is configured; never fabricates a transcript | `Authorization: Bearer <token>` | MineX Field (voice-note transcription) |
 | `GET` | `/reports/export?type=<inspections\|observations\|corrective-actions\|compliance>&mine=<id>` | Streams a CSV built from the caller's **RLS-scoped** session — the export can never contain rows the user could not already see | Session cookie (`getSessionUser`) | MineX Command (Reports) |
-| `GET` | `/auth/signout` | Ends the Supabase session and redirects | Session cookie | MineX Command |
+| `POST` | `/auth/signout` | Ends the Supabase session and redirects | Session cookie | MineX Command |
 
 Both `/api/ai/*` routes are `export const dynamic = 'force-dynamic'`.
 
@@ -722,7 +741,7 @@ Both `/api/ai/*` routes are `export const dynamic = 'force-dynamic'`.
 through RLS, re-checks capability, writes, then writes an `audit_logs` row and (where relevant) calls
 `notify_governance`:
 
-`assignCorrectiveAction`, `updateCorrectiveActionStatus`, `addProgressNote`,
+`assignCorrectiveAction`, `assignInspectionIssue`, `updateCorrectiveActionStatus`, `addProgressNote`,
 `submitCorrectiveAction`, `verifyCorrectiveAction`, `rejectCorrectiveAction`,
 `attachClosureEvidence`.
 
@@ -738,6 +757,7 @@ notification:
 | --- | --- |
 | `notify_governance(p_ca_id, p_recipient, p_kind)` | The only sanctioned `notifications` insert for non-admins; validates caller scope + recipient scope; `p_kind ∈ {assigned, submitted, verified, rejected}`. |
 | `eligible_ca_assignees(p_ca_id)` | Returns active profiles with a role assignment at that corrective action's mine — only if the caller has scope on that mine. |
+| `eligible_inspection_assignees(p_inspection_id)` | Lists active accounts with a current role assignment at the inspection mine, subject to the caller's mine scope. |
 | `scoped_profile_ids()` | Profile ids the caller may see because they share a mine scope (used by the extra `profiles` policy and by the two functions above). |
 | `user_mine_ids()` / `has_mine_scope()` / `is_system_admin()` / `current_profile_id()` | RLS helpers invoked inside policies. |
 
@@ -873,16 +893,14 @@ no extraction step**; the page displays `ocr_text` if a row already has it, and 
 
 ## 18. MineX Command (web)
 
-Route group `app/(command)/*`, all behind `getCommandContext()` (auth + primary role label +
-resolved org-scope label + the list of mines inside the user's scope) with `loading.tsx` skeletons
-and a shared `error.tsx`.
+The `app/(command)/*` route group uses an authenticated layout. Pages with a mine picker load the scoped mine list through `getCommandContext()`. Routes have `loading.tsx` placeholders and a shared `error.tsx`.
 
 | Route | What it shows (live, RLS-scoped) |
 | --- | --- |
 | `/` | Landing page → "Open Command Center" / "Sign in" |
 | `/login` | Sign-in form |
 | `/dashboard` | KPIs (total inspections, open observations, high/critical risks, pending corrective actions, compliance status); inspection trend; risk / observation-status / corrective-action-status breakdowns (Recharts); **AI Risk Insights**; **AI-Assisted Risk Intelligence** + escalation summary; **Priority Findings**; compliance snapshot; operational health; **Risk Map** preview; activity timeline. Streamed via `<Suspense>` boundaries; charts code-split. |
-| `/inspections`, `/inspections/[id]` | Inspection list + detail (checklist answers, observations, evidence) |
+| `/inspections`, `/inspections/[id]` | Inspection list and detail with checklist answers, observations, evidence and the drag-and-drop assignment panel for eligible roles. |
 | `/observations`, `/observations/[id]` | Observation list + detail with the persisted `ai_analyses` panel and evidence grid |
 | `/corrective-actions`, `/corrective-actions/[id]` | Governance loop UI: assign / progress / submit / verify / reject, with a governance timeline |
 | `/risk-map` | Full Leaflet risk map + geo/ungeo lists |
@@ -900,6 +918,10 @@ and a shared `error.tsx`.
 Navigation items are filtered by the user's permission set (`filterNav` in
 `src/components/command/nav.ts`); a mine filter appears when the user's scope covers more than one
 mine.
+
+**Live updates.** The header shows Realtime connection status. Changes to subscribed tables schedule a refresh once per one-second batch. The Refresh button also reloads the current view.
+
+**Navigation.** The production sidebar prefetches Overview, Inspections, Observations and Corrective Actions. Other sidebar links prefetch on hover or focus. Next.js keeps recent dynamic route results in the browser for 20 seconds and fully prefetched data for up to 30 seconds. Overview metrics can render before the supporting dashboard queries finish. Default dashboard and list queries run alongside profile and mine-picker lookups after session verification.
 
 ---
 
@@ -952,7 +974,7 @@ observation, **camera** + **gallery** evidence, **GPS** capture, **voice notes**
 ### Web — MineX Command
 
 A standard Next.js 15 App-Router application (`apps/web`). `npm run build` → `next build`;
-`npm run start` → `next start -p 3000`. It has no server of its own beyond Next.js, so it deploys to
+`npm run start --workspace @coalguard/web` → `next start -p 3000`. It has no server of its own beyond Next.js, so it deploys to
 any Next.js host; **Vercel** (with the repo's GitHub integration) is the intended target. Required
 environment variables are `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` and (only for
 the seed/reset scripts, not the running app) `SUPABASE_SERVICE_ROLE_KEY`. `AI_PROVIDER` defaults to
@@ -983,12 +1005,15 @@ Play Store). `apps/mobile/eas.json`:
 `userInterfaceStyle: light`, splash `#F5F6F4` with a transparent `assets/splash.png`. Permissions
 declared: camera, microphone (`RECORD_AUDIO`), fine + coarse location, `MODIFY_AUDIO_SETTINGS`.
 
-Build command:
+From the repository root, run `npm run mobile:apk`. This runs EAS from `apps/mobile` and selects the MineX Field APK profile. For a direct EAS invocation, use the app directory:
 
 ```bash
 cd apps/mobile
-npx eas build --platform android --profile preview
+npx eas-cli@latest login
+npx eas-cli@latest build --platform android --profile preview
 ```
+
+Open the completed EAS build link on your Android phone, download the APK and install it. Run the build from `apps/mobile`, where the MineX Field app and its preview profile are configured.
 
 > **Windows note (build tooling only).** If the checkout path contains an apostrophe, EAS's
 > `git clone --depth 1 file://…` archiving step fails (`exit 128`). Prefix the build with
@@ -1021,10 +1046,9 @@ npm install         # installs all workspaces into one shared node_modules
 
 ### 2. Create the Supabase schema
 
-In the Supabase SQL editor, run in order:
-`supabase/migrations/0001_init.sql` → `0002_rls.sql` → `0003_storage.sql` → `0004_grants.sql` →
-`0005_inspection_templates.sql` → `0006_governance.sql`, then `supabase/seed/seed.sql`.
-(Or use the Supabase CLI: `npx supabase link …` then `npx supabase db push`.)
+For a fresh project, run the files in [`supabase/migrations/`](supabase/migrations/) in numeric order from `0001_init.sql` through `0009_inspection_assignment.sql`, then run `supabase/seed/seed.sql`. In the SQL Editor, paste each complete file in a new query and clear any text selection before running it. Keep the RLS policies from `0002_rls.sql` enabled.
+
+For an existing project, apply pending migrations in order. `0007` registers tables for Realtime and can fail if they are already in the publication. `0009` checks that the functions from `0002` and `0006` exist. If migration history is managed through the Supabase CLI, link the project and use `npx supabase db push`.
 
 ### 3. Environment variables
 
@@ -1064,12 +1088,14 @@ npm run typecheck        # tsc --noEmit across all workspaces
 npm run lint             # next lint + expo lint
 npm run build            # builds MineX Command (next build)
 
-npm run web              # MineX Command → http://localhost:3000
+npm run web              # Turbopack dev server for MineX Command → http://localhost:3000
 npm run mobile           # Expo dev server for MineX Field (scan the QR in Expo Go)
 
 # project health for the mobile app
 cd apps/mobile && npx expo-doctor
 ```
+
+To check navigation without on-demand dev compilation, stop the dev server and run `npm run web:build`, then `npm run start --workspace @coalguard/web`. Route prefetching runs in production mode.
 
 Optional demo data layers (additive, safe to re-run, need the service-role key):
 
@@ -1187,11 +1213,11 @@ Priority finding (Command) → create corrective_actions row (status open)
 | # | Requirement | MineX implementation | Status |
 | --- | --- | --- | --- |
 | 1 | Statutory compliance tracking | `compliance_requirements` + `compliance_records` register, `/compliance`, KPIs, CSV export | Implemented |
-| 2 | Inspections / observations / violations | Templates → checklist → observation → corrective action, web + mobile, RLS-scoped | Implemented |
+| 2 | Inspections / observations / violations | Templates → checklist → observation → corrective action, including drag-and-drop assignment in Command, RLS-scoped | Implemented |
 | 3 | AI analytics | Deterministic keyword heuristic (risk band + consequence + action) + deterministic dashboard analytics; provider interface for a future model | Partial (heuristic, not a trained model / LLM) |
 | 4 | Geo-tagged / time-stamped field reporting | `expo-location` + `captured_at` / `occurred_at` on observations & evidence; `uploaded_by` attribution | Implemented |
 | 5 | Dashboards | `/dashboard` with KPIs, charts, priority findings, risk intelligence, risk map, activity — live RLS-scoped data | Implemented |
-| 6 | Alerts / reminders / escalation | Mobile Alerts (live), dashboard escalation summary, in-app `notify_governance` on governance events | Partial (no push, no scheduled reminders, no auto-overdue) |
+| 6 | Alerts / reminders / escalation | Mobile Alerts, Command Realtime refresh, dashboard escalation summary, in-app `notify_governance` on governance events | Partial (no push, no scheduled reminders, no auto-overdue) |
 | 7 | Paperless governance | Corrective-action assign→submit→verify/reject, append-only `audit_logs`, grievance workflow | Implemented |
 | 8 | Multi-mine / multi-subsidiary scalability | `subsidiaries → regions → mines → departments`, scope-aware queries, RLS via `user_mine_ids()` | Implemented |
 | 9 | GIS | Leaflet + OpenStreetMap risk map, geo-tagged observation markers, `mines.lat/lng` | Implemented (basic; no imagery/heatmap; `mines.boundary` unused) |
@@ -1294,6 +1320,7 @@ MineX/
 ├── supabase/
 │   ├── migrations/              0001_init · 0002_rls · 0003_storage · 0004_grants
 │   │                            0005_inspection_templates · 0006_governance
+│   │                            0007_realtime, 0009_inspection_assignment
 │   ├── seed/                    seed.sql · role_assignments.example.sql
 │   │                            demo-seed.mjs (npm run demo:reset) · demo-seed-intelligence.mjs
 │   │                            demo-seed-operations.mjs · demo_reset.sql · assets/*.jpg

@@ -1,12 +1,11 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 
 export function SignInForm() {
-  const router = useRouter();
   const params = useSearchParams();
   const nextPath = params.get('next') ?? '/dashboard';
 
@@ -26,8 +25,10 @@ export function SignInForm() {
         setError(error.message);
         return;
       }
-      router.push(nextPath);
-      router.refresh();
+      const destination = new URL(nextPath, window.location.origin);
+      const isLocal =
+        destination.origin === window.location.origin && destination.protocol === window.location.protocol;
+      window.location.replace(isLocal ? destination.href : '/dashboard');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong.');
     } finally {
@@ -66,7 +67,7 @@ export function SignInForm() {
       ) : null}
 
       <Button type="submit" disabled={loading} className="mt-2">
-        {loading ? 'Signing in…' : 'Sign in'}
+        Sign in
       </Button>
     </form>
   );

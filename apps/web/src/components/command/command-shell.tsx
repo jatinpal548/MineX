@@ -1,12 +1,25 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import Form from 'next/form';
+import { usePathname, useRouter } from 'next/navigation';
 import { PanelLeftClose, PanelLeftOpen, Menu, X, Search, Bell } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { RefreshButton } from '@/components/ui/refresh-button';
+import { RealtimeBadge } from '@/components/ui/realtime-badge';
+import { useRealtime } from '@/lib/realtime/useRealtime';
 import { PRIMARY_NAV, UTILITY_NAV, filterNav, isActive } from './nav';
+
+// Tables we want to subscribe to for dashboard/command-center freshness.
+const DASHBOARD_TABLES = [
+  'inspections',
+  'observations',
+  'corrective_actions',
+  'evidence',
+  'notifications',
+  'grievances',
+] as const;
 
 interface ShellUser {
   name: string;
@@ -22,6 +35,7 @@ interface ShellContext {
 }
 
 const COLLAPSE_KEY = 'cg.command.sidebar.collapsed';
+const CORE_ROUTES = new Set(['/dashboard', '/inspections', '/observations', '/corrective-actions']);
 
 export function CommandShell({
   context,
@@ -31,10 +45,30 @@ export function CommandShell({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const primaryNav = filterNav(PRIMARY_NAV, context.permissions);
   const utilityNav = filterNav(UTILITY_NAV, context.permissions);
+
+  const realtime = useRealtime({ tables: DASHBOARD_TABLES });
+  const prevEventRef = useRef<string | null>(null);
+  const refreshTimer = useRef<number | null>(null);
+
+  // A field sync can write several tables. Refresh once for the whole burst.
+  useEffect(() => {
+    if (!realtime.lastEventAt || realtime.lastEventAt === prevEventRef.current) return;
+    prevEventRef.current = realtime.lastEventAt;
+    if (refreshTimer.current !== null) return;
+    refreshTimer.current = window.setTimeout(() => {
+      refreshTimer.current = null;
+      router.refresh();
+    }, 1000);
+  }, [realtime.lastEventAt, router]);
+
+  useEffect(() => () => {
+    if (refreshTimer.current !== null) window.clearTimeout(refreshTimer.current);
+  }, []);
 
   useEffect(() => {
     try {
@@ -103,7 +137,11 @@ export function CommandShell({
             <p className="truncate text-xs text-secondary">{context.scopeKicker}</p>
           </div>
 
-          <form action="/inspections" className="relative ml-auto hidden lg:block">
+          <div className="hidden items-center gap-2 lg:flex">
+            <RealtimeBadge status={realtime.status} lastEventAt={realtime.lastEventAt} />
+          </div>
+
+          <Form action="/inspections" className="relative ml-auto hidden lg:block">
             <Search
               className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-secondary"
               strokeWidth={1.75}
@@ -113,9 +151,10 @@ export function CommandShell({
               placeholder="Search inspections…"
               className="h-9 w-56 rounded-md border border-border bg-surface pl-9 pr-3 text-sm outline-none transition-colors focus:border-graphite-400"
             />
-          </form>
+          </Form>
 
           <div className="ml-auto flex items-center gap-2 lg:ml-0">
+            <RealtimeBadge status={realtime.status} lastEventAt={realtime.lastEventAt} compact className="lg:hidden" />
             <RefreshButton />
             <Link
               href="/notifications"
@@ -199,13 +238,13 @@ function Sidebar({
 
       <nav className="flex-1 space-y-1 overflow-y-auto px-2 py-3">
         {primaryNav.map((item) => (
-          <NavLink key={item.href} item={item} active={isActive(pathname, item.href)} collapsed={collapsed} />
+          <NavLink key={item.href} item={item} pathname={pathname} collapsed={collapsed} onNavigate={onCloseDrawer} />
         ))}
       </nav>
 
       <div className="space-y-1 border-t border-graphite-800 px-2 py-3">
         {utilityNav.map((item) => (
-          <NavLink key={item.href} item={item} active={isActive(pathname, item.href)} collapsed={collapsed} />
+          <NavLink key={item.href} item={item} pathname={pathname} collapsed={collapsed} onNavigate={onCloseDrawer} />
         ))}
         <button
           type="button"
@@ -228,20 +267,33 @@ function Sidebar({
 
 function NavLink({
   item,
-  active,
+  pathname,
   collapsed,
+  onNavigate,
 }: {
   item: (typeof PRIMARY_NAV)[number];
-  active: boolean;
+  pathname: string;
   collapsed: boolean;
+  onNavigate: () => void;
 }) {
   const Icon = item.icon;
+  const active = isActive(pathname, item.href);
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const shouldPrefetch = pathname !== item.href && (CORE_ROUTES.has(item.href) || hovered || focused);
   return (
     <Link
       href={item.href}
+      prefetch={shouldPrefetch}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+      onNavigate={onNavigate}
+      aria-current={pathname === item.href ? 'page' : undefined}
       title={collapsed ? item.label : undefined}
       className={cn(
-        'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+        'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors active:bg-graphite-800 active:text-white',
         active
           ? 'bg-graphite-800 text-white'
           : 'text-graphite-300 hover:bg-graphite-800/70 hover:text-white',

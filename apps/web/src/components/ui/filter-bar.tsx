@@ -31,6 +31,9 @@ export function FilterBar({
   // keep local input in sync if the URL changes elsewhere (e.g. Clear all)
   useEffect(() => {
     setTerm(params.get(searchKey) ?? '');
+    return () => {
+      if (debounce.current) clearTimeout(debounce.current);
+    };
   }, [params, searchKey]);
 
   const push = useCallback(

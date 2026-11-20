@@ -12,7 +12,7 @@ import { cache } from 'react';
 import { getRoleDefinition } from '@coalguard/config';
 import type { RoleAssignment } from '@coalguard/types';
 import { createClient } from '@/lib/supabase/server';
-import { getSessionUser, type SessionUser } from '@/lib/auth';
+import { getSessionUser, getVerifiedUser, type SessionUser } from '@/lib/auth';
 
 export interface MineOption {
   id: string;
@@ -130,30 +130,51 @@ async function accessibleMines(
   return { mines: (data ?? []) as MineOption[], all: false };
 }
 
-/**
- * Per-request memoised. The command layout AND several pages (dashboard, etc.)
- * all need this; `cache()` collapses those into a single auth + scope resolve
- * per render instead of one per caller.
- */
-export const getCommandContext = cache(async (): Promise<CommandContext | null> => {
+/** Shared per request by the shell and pages that display the scope label. */
+export const getCommandHeader = cache(async () => {
   const user = await getSessionUser();
   if (!user) return null;
 
   const supabase = await createClient();
   const primary = primaryAssignment(user.roles);
-  const isAdmin = user.roles.some((r) => r.role === 'SYSTEM_ADMIN');
-
-  const [{ scopeLabel, scopeKicker }, { mines, all }] = await Promise.all([
-    resolveScope(supabase, primary),
-    accessibleMines(supabase, user.roles, isAdmin),
-  ]);
-
+  const { scopeLabel, scopeKicker } = await resolveScope(supabase, primary);
   return {
     user,
     primaryRoleLabel: primary ? getRoleDefinition(primary.role).label : 'No role assigned',
     scopeLabel,
     scopeKicker,
-    mines,
-    canSeeAllMines: all,
   };
 });
+
+export const getCommandContext = cache(async (): Promise<CommandContext | null> => {
+  const user = await getSessionUser();
+  if (!user) return null;
+
+  const supabase = await createClient();
+  const isAdmin = user.roles.some((r) => r.role === 'SYSTEM_ADMIN');
+  const [header, { mines, all }] = await Promise.all([
+    getCommandHeader(),
+    accessibleMines(supabase, user.roles, isAdmin),
+  ]);
+  return header ? { ...header, mines, canSeeAllMines: all } : null;
+});
+
+/** Start the default mine-scoped read alongside the mine picker queries. */
+export async function loadScopedCommandPage<T>(
+  mineParam: string | undefined,
+  load: (mineId: string | undefined) => Promise<T>,
+): Promise<{ context: CommandContext; data: T } | null> {
+  const contextPromise = getCommandContext();
+  if (!mineParam) {
+    const [context, result] = await Promise.all([
+      contextPromise,
+      getVerifiedUser().then(async (user) => (user ? { data: await load(undefined) } : null)),
+    ]);
+    return context && result ? { context, data: result.data } : null;
+  }
+
+  const context = await contextPromise;
+  if (!context) return null;
+  const activeMine = context.mines.some((mine) => mine.id === mineParam) ? mineParam : undefined;
+  return { context, data: await load(activeMine) };
+}

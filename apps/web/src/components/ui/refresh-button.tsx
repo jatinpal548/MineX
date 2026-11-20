@@ -7,7 +7,7 @@ import { cn } from '@/lib/cn';
 
 /**
  * Re-runs the current server component tree (picks up data synced from the
- * mobile app). No client-side cache to bust - `router.refresh()` refetches.
+ * mobile app). `router.refresh()` fetches a fresh copy of the current route.
  */
 export function RefreshButton({ label = 'Refresh' }: { label?: string }) {
   const router = useRouter();

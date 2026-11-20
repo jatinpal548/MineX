@@ -119,6 +119,18 @@ export async function getEligibleAssignees(caId: string): Promise<EligibleAssign
   const supabase = await createClient();
   const { data, error } = await supabase.rpc('eligible_ca_assignees', { p_ca_id: caId });
   if (error) return [];
+  return mapAssignees(data);
+}
+
+export async function getInspectionAssignees(inspectionId: string): Promise<EligibleAssignee[] | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('eligible_inspection_assignees', {
+    p_inspection_id: inspectionId,
+  });
+  return error ? null : mapAssignees(data);
+}
+
+function mapAssignees(data: unknown): EligibleAssignee[] {
   return ((data ?? []) as { id: string; full_name: string; email: string | null }[]).map((r) => ({
     id: r.id,
     fullName: r.full_name || r.email || 'Unknown user',

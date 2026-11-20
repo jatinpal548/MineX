@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { Wrench } from 'lucide-react';
 import type { CorrectiveActionPriority, CorrectiveActionStatus } from '@coalguard/types';
 import { CORRECTIVE_ACTION_PRIORITIES } from '@coalguard/types';
-import { getCommandContext } from '@/lib/data/context';
+import { loadScopedCommandPage } from '@/lib/data/context';
 import { listCorrectiveActions } from '@/lib/data/corrective-actions';
 import { CA_STATUS_META, CA_STATUS_ORDER } from '@/lib/status';
 import { PageHeader } from '@/components/ui/page-header';
@@ -31,32 +31,30 @@ export default async function CorrectiveActionsPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const sp = await searchParams;
-  const context = await getCommandContext();
-  if (!context) return null;
-
-  const mineParam = str(sp.mine);
-  const activeMine =
-    mineParam && context.mines.some((m) => m.id === mineParam) ? mineParam : undefined;
   const statusParam = str(sp.status);
   const priorityParam = str(sp.priority);
   const dueParam = str(sp.due);
   const page = Number(str(sp.page) ?? '1') || 1;
 
-  const result = await listCorrectiveActions({
-    search: str(sp.q),
-    status: CA_STATUS_ORDER.includes(statusParam as CorrectiveActionStatus)
-      ? (statusParam as CorrectiveActionStatus)
-      : undefined,
-    priority: CORRECTIVE_ACTION_PRIORITIES.includes(priorityParam as CorrectiveActionPriority)
-      ? (priorityParam as CorrectiveActionPriority)
-      : undefined,
-    due:
-      dueParam === 'overdue' || dueParam === 'upcoming' || dueParam === 'none'
-        ? dueParam
+  const loaded = await loadScopedCommandPage(str(sp.mine), (mineId) =>
+    listCorrectiveActions({
+      search: str(sp.q),
+      status: CA_STATUS_ORDER.includes(statusParam as CorrectiveActionStatus)
+        ? (statusParam as CorrectiveActionStatus)
         : undefined,
-    mineId: activeMine,
-    page,
-  });
+      priority: CORRECTIVE_ACTION_PRIORITIES.includes(priorityParam as CorrectiveActionPriority)
+        ? (priorityParam as CorrectiveActionPriority)
+        : undefined,
+      due:
+        dueParam === 'overdue' || dueParam === 'upcoming' || dueParam === 'none'
+          ? dueParam
+          : undefined,
+      mineId,
+      page,
+    }),
+  );
+  if (!loaded) return null;
+  const { context, data: result } = loaded;
 
   return (
     <div className="space-y-5">

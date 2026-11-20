@@ -1,12 +1,12 @@
 import { redirect } from 'next/navigation';
-import { getCommandContext } from '@/lib/data/context';
+import { getCommandHeader } from '@/lib/data/context';
 import { CommandShell } from '@/components/command/command-shell';
 
 // Auth-gated + cookie-dependent: never statically prerender.
 export const dynamic = 'force-dynamic';
 
 export default async function CommandLayout({ children }: { children: React.ReactNode }) {
-  const context = await getCommandContext();
+  const context = await getCommandHeader();
   if (!context) redirect('/login');
 
   return (

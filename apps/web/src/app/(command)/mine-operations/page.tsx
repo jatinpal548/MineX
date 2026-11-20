@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { Activity, Gauge, Mountain, Package, Wind, Wrench } from 'lucide-react';
-import { getCommandContext } from '@/lib/data/context';
+import { loadScopedCommandPage } from '@/lib/data/context';
 import { getOperationsData, EQUIPMENT_STATUS_META } from '@/lib/data/operations';
 import { PageHeader } from '@/components/ui/page-header';
 import { KpiCard } from '@/components/ui/kpi-card';
@@ -22,14 +22,12 @@ export default async function MineOperationsPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const sp = await searchParams;
-  const context = await getCommandContext();
-  if (!context) return null;
 
-  const mineParam = str(sp.mine);
-  const activeMine =
-    mineParam && context.mines.some((m) => m.id === mineParam) ? mineParam : undefined;
-
-  const data = await getOperationsData({ mineId: activeMine });
+  const loaded = await loadScopedCommandPage(str(sp.mine), (mineId) =>
+    getOperationsData({ mineId }),
+  );
+  if (!loaded) return null;
+  const { context, data } = loaded;
   const operational = data.equipment.filter((e) => e.status === 'operational').length;
   const downForMaintenance = data.equipment.filter(
     (e) => e.status === 'maintenance' || e.status === 'breakdown',

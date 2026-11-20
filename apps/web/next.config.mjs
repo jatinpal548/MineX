@@ -17,6 +17,9 @@ const nextConfig = {
   experimental: {
     // allow importing files from the monorepo root
     externalDir: true,
+    // Keep recently opened pages in the browser's router cache. A refresh or
+    // a server action's revalidation still fetches fresh, RLS-scoped data.
+    staleTimes: { dynamic: 20, static: 30 },
     // per-icon / per-module chunking instead of pulling whole barrels into the
     // route bundle (keeps the dashboard's first-load JS lean).
     optimizePackageImports: ['lucide-react', 'recharts'],

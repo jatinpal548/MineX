@@ -4,6 +4,11 @@ import { notFound } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
 import type { InspectionItemResponse } from '@coalguard/types';
 import { getInspectionDetail } from '@/lib/data/inspections';
+import { getSessionUser } from '@/lib/auth';
+import { getInspectionAssignees } from '@/lib/data/governance';
+import { caCapabilities } from '@/lib/data/ca-permissions';
+import { InspectionAssignment } from '@/components/command/governance/inspection-assignment';
+import { OBSERVATION_OPEN_STATUSES } from '@/lib/status';
 import { Badge } from '@/components/ui/badge';
 import { Panel, DefinitionRow } from '@/components/ui/panel';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -32,10 +37,28 @@ export default async function InspectionDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const insp = await getInspectionDetail(id).catch(() => null);
+  const assignment = getSessionUser().then(async (user) => ({
+    user,
+    assignees: user?.permissions.includes('corrective_action:assign')
+      ? await getInspectionAssignees(id)
+      : [],
+  }));
+  const [insp, { user, assignees }] = await Promise.all([
+    getInspectionDetail(id).catch(() => null),
+    assignment,
+  ]);
   if (!insp) notFound();
 
   const sections = [...new Set(insp.items.map((i) => i.section))];
+  const roles = user?.roles.map((role) => role.role) ?? [];
+  const issues = user?.permissions.includes('corrective_action:assign')
+    ? insp.observations.filter((issue) => issue.correctiveAction
+      ? caCapabilities(roles, user.id, { status: issue.correctiveAction.status, assignedTo: null }).canAssign
+      : OBSERVATION_OPEN_STATUSES.includes(issue.status))
+    : [];
+  const defaultDueDate = new Date(Date.now() + 7 * 86400_000).toLocaleDateString('en-CA', {
+    timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit',
+  });
 
   return (
     <div className="space-y-6">
@@ -61,6 +84,17 @@ export default async function InspectionDetailPage({
           {insp.overallRisk ? <RiskTag risk={insp.overallRisk} /> : null}
         </div>
       </header>
+
+      {issues.length > 0 ? (
+        <Panel title="Assign inspection issues">
+          {assignees?.length ? (
+            <InspectionAssignment inspectionId={id} defaultDueDate={defaultDueDate} assignees={assignees}
+              issues={issues.map((issue) => ({ id: issue.id, title: issue.title, assigneeName: issue.correctiveAction?.assigneeName ?? null }))} />
+          ) : (
+            <p className="text-sm text-secondary">{assignees ? 'No active assignees are available for this mine.' : 'Assignees could not be loaded.'}</p>
+          )}
+        </Panel>
+      ) : null}
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">
@@ -128,7 +162,9 @@ export default async function InspectionDetailPage({
                     <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-secondary">
                       <ObservationStatusTag status={o.status} />
                       {o.correctiveAction ? (
-                        <CorrectiveActionStatusTag status={o.correctiveAction.status} />
+                        <Link href={`/corrective-actions/${o.correctiveAction.id}`} aria-label={`Open corrective action for ${o.title}`}>
+                          <CorrectiveActionStatusTag status={o.correctiveAction.status} />
+                        </Link>
                       ) : null}
                       {o.evidenceCount > 0 ? <span>· {o.evidenceCount} photo(s)</span> : null}
                       {o.inspectorName ? <span>· {o.inspectorName}</span> : null}

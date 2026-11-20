@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { MessageSquareWarning, CheckCircle2, Clock } from 'lucide-react';
 import type { GrievanceStatus } from '@coalguard/types';
-import { getCommandContext } from '@/lib/data/context';
+import { loadScopedCommandPage } from '@/lib/data/context';
 import {
   getGrievanceData,
   GRIEVANCE_STATUS_META,
@@ -28,20 +28,18 @@ export default async function GrievancesPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const sp = await searchParams;
-  const context = await getCommandContext();
-  if (!context) return null;
-
-  const mineParam = str(sp.mine);
-  const activeMine =
-    mineParam && context.mines.some((m) => m.id === mineParam) ? mineParam : undefined;
   const statusParam = str(sp.status);
 
-  const data = await getGrievanceData({
-    mineId: activeMine,
-    status: GRIEVANCE_STATUS_ORDER.includes(statusParam as GrievanceStatus)
-      ? (statusParam as GrievanceStatus)
-      : undefined,
-  });
+  const loaded = await loadScopedCommandPage(str(sp.mine), (mineId) =>
+    getGrievanceData({
+      mineId,
+      status: GRIEVANCE_STATUS_ORDER.includes(statusParam as GrievanceStatus)
+        ? (statusParam as GrievanceStatus)
+        : undefined,
+    }),
+  );
+  if (!loaded) return null;
+  const { context, data } = loaded;
 
   return (
     <div className="space-y-6">

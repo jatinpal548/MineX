@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { CalendarDays, UserCheck, UserX, Users } from 'lucide-react';
-import { getCommandContext } from '@/lib/data/context';
+import { loadScopedCommandPage } from '@/lib/data/context';
 import { getAttendanceData, ATTENDANCE_STATUS_META } from '@/lib/data/attendance';
 import { PageHeader } from '@/components/ui/page-header';
 import { KpiCard } from '@/components/ui/kpi-card';
@@ -22,14 +22,12 @@ export default async function AttendancePage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const sp = await searchParams;
-  const context = await getCommandContext();
-  if (!context) return null;
 
-  const mineParam = str(sp.mine);
-  const activeMine =
-    mineParam && context.mines.some((m) => m.id === mineParam) ? mineParam : undefined;
-
-  const data = await getAttendanceData({ mineId: activeMine, date: str(sp.date) });
+  const loaded = await loadScopedCommandPage(str(sp.mine), (mineId) =>
+    getAttendanceData({ mineId, date: str(sp.date) }),
+  );
+  if (!loaded) return null;
+  const { context, data } = loaded;
   const { day, entries, trend } = data;
   const maxTrend = Math.max(1, ...trend.map((t) => t.total));
 

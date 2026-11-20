@@ -14,7 +14,8 @@ import {
   Wrench,
 } from 'lucide-react';
 import { getCommandContext } from '@/lib/data/context';
-import { getDashboardData } from '@/lib/data/dashboard';
+import { getVerifiedUser } from '@/lib/auth';
+import { getDashboardData, getDashboardOverview } from '@/lib/data/dashboard';
 import { PageHeader } from '@/components/ui/page-header';
 import { KpiCard } from '@/components/ui/kpi-card';
 import { Panel } from '@/components/ui/panel';
@@ -45,6 +46,13 @@ export default async function DashboardPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const sp = await searchParams;
+  const mineParam = typeof sp.mine === 'string' ? sp.mine : undefined;
+  if (!mineParam) {
+    // Prime the request-local reads while the shell resolves profile and mine scope.
+    void getVerifiedUser().then((user) => user && getDashboardData()).catch(() => {
+      // The rendered dashboard awaits the same memoized result via its boundary.
+    });
+  }
   const context = await getCommandContext();
   if (!context) return null; // layout already redirects
   // gate in-page links the same way the sidebar is gated (RLS is still the
@@ -52,7 +60,6 @@ export default async function DashboardPage({
   const perms = new Set(context.user.permissions as string[]);
   const can: Can = (p) => perms.has(p);
 
-  const mineParam = typeof sp.mine === 'string' ? sp.mine : undefined;
   const activeMine =
     mineParam && context.mines.some((m) => m.id === mineParam) ? mineParam : undefined;
 
@@ -94,8 +101,7 @@ export default async function DashboardPage({
 /* ------------------------------- KPI section ------------------------------ */
 
 async function KpiSection({ mineId, can }: { mineId?: string; can: Can }) {
-  const { kpis, intel } = await getDashboardData({ mineId });
-  const esc = intel.escalation;
+  const { kpis, escalation: esc, envBreaches } = await getDashboardOverview(mineId);
 
   const escChips: { label: string; value: number; tone: string }[] = [
     { label: 'Critical', value: esc.critical, tone: 'text-critical-600' },
@@ -140,9 +146,9 @@ async function KpiSection({ mineId, can }: { mineId?: string; can: Can }) {
         />
         <KpiCard
           label="Environmental Breaches"
-          value={intel.envBreaches}
+          value={envBreaches}
           icon={Wind}
-          tone={intel.envBreaches > 0 ? 'critical' : 'safe'}
+          tone={envBreaches > 0 ? 'critical' : 'safe'}
           hint="Readings above threshold"
         />
       </section>

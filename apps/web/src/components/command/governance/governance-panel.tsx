@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useTransition, type ReactNode } from 'react';
-import { useRouter } from 'next/navigation';
 import {
   CheckCircle2,
   ClipboardCheck,
@@ -73,7 +72,6 @@ export function GovernancePanel({
   capabilities: CaCapabilities;
   assignees: Assignee[];
 }) {
-  const router = useRouter();
   const [dialog, setDialog] = useState<DialogKind | null>(null);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -84,7 +82,6 @@ export function GovernancePanel({
       const res = await fn();
       if (res.ok) {
         setDialog(null);
-        router.refresh();
       } else {
         setError(ERROR_TEXT[res.error] ?? res.error);
       }

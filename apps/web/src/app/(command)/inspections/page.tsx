@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { ClipboardList } from 'lucide-react';
 import type { InspectionStatus, RiskLevel } from '@coalguard/types';
-import { getCommandContext } from '@/lib/data/context';
+import { loadScopedCommandPage } from '@/lib/data/context';
 import { listInspections } from '@/lib/data/inspections';
 import { INSPECTION_STATUS_META, INSPECTION_STATUS_ORDER, RISK_META, RISK_ORDER } from '@/lib/status';
 import { PageHeader } from '@/components/ui/page-header';
@@ -24,25 +24,23 @@ export default async function InspectionsPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const sp = await searchParams;
-  const context = await getCommandContext();
-  if (!context) return null;
-
-  const mineParam = str(sp.mine);
-  const activeMine =
-    mineParam && context.mines.some((m) => m.id === mineParam) ? mineParam : undefined;
   const statusParam = str(sp.status);
   const riskParam = str(sp.risk);
   const page = Number(str(sp.page) ?? '1') || 1;
 
-  const result = await listInspections({
-    search: str(sp.q),
-    status: INSPECTION_STATUS_ORDER.includes(statusParam as InspectionStatus)
-      ? (statusParam as InspectionStatus)
-      : undefined,
-    risk: RISK_ORDER.includes(riskParam as RiskLevel) ? (riskParam as RiskLevel) : undefined,
-    mineId: activeMine,
-    page,
-  });
+  const loaded = await loadScopedCommandPage(str(sp.mine), (mineId) =>
+    listInspections({
+      search: str(sp.q),
+      status: INSPECTION_STATUS_ORDER.includes(statusParam as InspectionStatus)
+        ? (statusParam as InspectionStatus)
+        : undefined,
+      risk: RISK_ORDER.includes(riskParam as RiskLevel) ? (riskParam as RiskLevel) : undefined,
+      mineId,
+      page,
+    }),
+  );
+  if (!loaded) return null;
+  const { context, data: result } = loaded;
 
   return (
     <div className="space-y-5">

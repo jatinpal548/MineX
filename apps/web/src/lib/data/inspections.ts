@@ -114,7 +114,12 @@ export interface InspectionObservation {
   status: ObservationStatus;
   createdAt: string;
   inspectorName: string | null;
-  correctiveAction: { id: string; status: CorrectiveActionStatus; priority: CorrectiveActionPriority } | null;
+  correctiveAction: {
+    id: string;
+    status: CorrectiveActionStatus;
+    priority: CorrectiveActionPriority;
+    assigneeName: string | null;
+  } | null;
   evidenceCount: number;
 }
 
@@ -202,10 +207,12 @@ export async function getInspectionDetail(id: string): Promise<InspectionDetail 
       .select(
         `id, title, description, category, risk, status, created_at,
          raised_by_profile:profiles!observations_raised_by_fkey(full_name),
-         corrective_actions(id, status, priority),
+         corrective_actions(id, status, priority, assignee:profiles!corrective_actions_assigned_to_fkey(full_name)),
          evidence(count)`,
       )
       .eq('inspection_id', id)
+      .order('created_at', { referencedTable: 'corrective_actions', ascending: false })
+      .limit(1, { referencedTable: 'corrective_actions' })
       .order('created_at', { ascending: true }),
     supabase
       .from('evidence')
@@ -232,7 +239,8 @@ export async function getInspectionDetail(id: string): Promise<InspectionDetail 
   const observations: InspectionObservation[] = ((obsRes.data ?? []) as Record<string, unknown>[]).map(
     (r) => {
       const ca = one(r.corrective_actions as unknown) as
-        | { id: string; status: CorrectiveActionStatus; priority: CorrectiveActionPriority }
+        | { id: string; status: CorrectiveActionStatus; priority: CorrectiveActionPriority;
+            assignee: { full_name: string } | { full_name: string }[] | null }
         | null;
       const who = one(r.raised_by_profile as unknown) as { full_name?: string } | null;
       return {
@@ -244,7 +252,10 @@ export async function getInspectionDetail(id: string): Promise<InspectionDetail 
         status: r.status as ObservationStatus,
         createdAt: r.created_at as string,
         inspectorName: who?.full_name ?? null,
-        correctiveAction: ca ? { id: ca.id, status: ca.status, priority: ca.priority } : null,
+        correctiveAction: ca ? {
+          id: ca.id, status: ca.status, priority: ca.priority,
+          assigneeName: one(ca.assignee)?.full_name || null,
+        } : null,
         evidenceCount: embedCount(r.evidence),
       };
     },
